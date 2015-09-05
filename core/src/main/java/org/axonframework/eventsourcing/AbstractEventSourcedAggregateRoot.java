@@ -16,6 +16,8 @@
 
 package org.axonframework.eventsourcing;
 
+import org.axonframework.commandhandling.CommandMessage;
+import org.axonframework.commandhandling.GenericCommandMessage;
 import org.axonframework.common.Assert;
 import org.axonframework.domain.AbstractAggregateRoot;
 import org.axonframework.domain.DomainEventMessage;
@@ -45,6 +47,7 @@ public abstract class AbstractEventSourcedAggregateRoot<I> extends AbstractAggre
 
     private transient boolean applyingEvents = false;
     private transient Queue<PayloadAndMetaData> eventsToApply = new ArrayDeque<PayloadAndMetaData>();
+    private transient Queue<GenericCommandMessage> eventsToDispatch = new ArrayDeque<GenericCommandMessage>();
 
     /**
      * {@inheritDoc}
@@ -100,6 +103,11 @@ public abstract class AbstractEventSourcedAggregateRoot<I> extends AbstractAggre
         boolean wasNested = applyingEvents;
         applyingEvents = true;
         try {
+            if (eventsToDispatch == null) {
+                eventsToDispatch = new ArrayDeque<GenericCommandMessage>();
+            }
+            eventsToDispatch.add(new GenericCommandMessage<Object>(eventPayload, metaData));
+
             if (getIdentifier() == null) {
                 Assert.state(!wasNested,
                              "Applying an event in an @EventSourcingHandler is allowed, but only *after* the "
@@ -117,11 +125,13 @@ public abstract class AbstractEventSourcedAggregateRoot<I> extends AbstractAggre
                 handleRecursively(message);
                 registerEventMessage(message);
             } else {
-                // eventsToApply may heb been set to null by serialization
+                // queues may have been set to null by serialization
                 if (eventsToApply == null) {
                     eventsToApply = new ArrayDeque<PayloadAndMetaData>();
                 }
-                eventsToApply.add(new PayloadAndMetaData(eventPayload, metaData));
+
+                PayloadAndMetaData payloadAndMetaData = new PayloadAndMetaData(eventPayload, metaData);
+                eventsToApply.add(payloadAndMetaData);
             }
 
             while (!wasNested && eventsToApply != null && !eventsToApply.isEmpty()) {
@@ -130,6 +140,11 @@ public abstract class AbstractEventSourcedAggregateRoot<I> extends AbstractAggre
             }
         } finally {
             applyingEvents = wasNested;
+            if (!applyingEvents) {
+                while (eventsToDispatch != null && !eventsToDispatch.isEmpty()) {
+                    dispatch(eventsToDispatch.poll());
+                }
+            }
         }
     }
 
@@ -154,7 +169,7 @@ public abstract class AbstractEventSourcedAggregateRoot<I> extends AbstractAggre
      * <code>isLive()</code> can be used to prevent expensive calculations while event sourcing.
      *
      * @return <code>true</code> if the aggregate is live, <code>false</code> when the aggregate is relaying historic
-     * events.
+     *         events.
      */
     protected boolean isLive() {
         return !inReplay;
@@ -171,6 +186,10 @@ public abstract class AbstractEventSourcedAggregateRoot<I> extends AbstractAggre
                 }
             }
         }
+    }
+
+    protected void dispatch(CommandMessage<Object> commandMessage) {
+
     }
 
     /**

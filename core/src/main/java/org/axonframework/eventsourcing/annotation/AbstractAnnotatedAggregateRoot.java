@@ -16,6 +16,9 @@
 
 package org.axonframework.eventsourcing.annotation;
 
+import org.axonframework.commandhandling.CommandMessage;
+import org.axonframework.commandhandling.NoHandlerForCommandException;
+import org.axonframework.commandhandling.annotation.AnnotationCommandHandlerAdapter;
 import org.axonframework.common.annotation.ClasspathParameterResolverFactory;
 import org.axonframework.common.annotation.MessageHandlerInvoker;
 import org.axonframework.common.annotation.ParameterResolverFactory;
@@ -60,6 +63,20 @@ public abstract class AbstractAnnotatedAggregateRoot<I> extends AbstractEventSou
         ensureInspectorInitialized();
         ensureInvokerInitialized();
         eventHandlerInvoker.invokeHandlerMethod(event);
+    }
+
+    @Override
+    protected void dispatch(CommandMessage<Object> payload) {
+        AnnotationCommandHandlerAdapter adapter = new AnnotationCommandHandlerAdapter(this);
+        try {
+            if (CurrentUnitOfWork.isStarted()) {
+                adapter.handle(payload, CurrentUnitOfWork.get());
+            }
+        } catch (NoHandlerForCommandException e) {
+            // TODO customize handler
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @SuppressWarnings("unchecked")
